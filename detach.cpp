@@ -1,4 +1,3 @@
-void __attribute__((destructor)) finiDetach();
 #include "mpi-detach.h"
 #include <atomic>
 #include <chrono>
@@ -260,4 +259,11 @@ int MPI_Detach_all_status(int count, MPI_Request array_of_requests[],
   }
   printf("MPI_Detach_all_status\n");
   return MPI_SUCCESS;
+}
+
+int MPI_Finalize(){
+  // we need to make sure, all communication is finished 
+  // before calling MPI_Finalize
+  finiDetach();
+  return PMPI_Finalize();
 }
