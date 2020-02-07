@@ -47,7 +47,7 @@ struct allRequest {
   MPI_Detach_callback_statuses *callback_statuses;
   MPI_Status *statuses;
   void *data;
-  allRequest(int count, MPI_Request array_of_requests[],
+  allRequest(int count, MPI_Request* array_of_requests,
              MPI_Detach_callback *callback, void *data)
       : count(count), req(new MPI_Request[count]), callback(callback),
         callback_statuses(nullptr), statuses(MPI_STATUSES_IGNORE), data(data) {
@@ -56,7 +56,7 @@ struct allRequest {
       array_of_requests[i] = MPI_REQUEST_NULL;
     }
   }
-  allRequest(int count, MPI_Request array_of_requests[],
+  allRequest(int count, MPI_Request* array_of_requests,
              MPI_Detach_callback_statuses *callback, void *data)
       : count(count), req(new MPI_Request[count]), callback(nullptr),
         callback_statuses(callback), statuses(new MPI_Status[count]),
@@ -73,14 +73,14 @@ struct allRequest {
   }
 };
 
-static std::list<singleRequest> singleRequestsQueue{};
-static std::list<allRequest> allRequestsQueue{};
+static std::list<singleRequest*> singleRequestsQueue{};
+static std::list<allRequest*> allRequestsQueue{};
 
-static std::list<singleRequest> singleRequests{};
-static std::list<allRequest> allRequests{};
+static std::list<singleRequest*> singleRequests{};
+static std::list<allRequest*> allRequests{};
 
 void run(void) {
-  while (running) {
+  while (running || !singleRequests.empty() || !allRequests.empty()) {
     do {
       std::unique_lock<std::mutex> lck(listMtx);
       if (!singleRequestsQueue.empty())
@@ -93,36 +93,36 @@ void run(void) {
           listCv.wait(lck);
         }
     } while (running && singleRequests.empty() && allRequests.empty());
-    if (!running)
-      break;
-    {
+    if (!singleRequests.empty()) {
       auto iter = singleRequests.begin();
       auto end = singleRequests.end();
       while (iter != end) {
         int flag;
-        MPI_Test(&iter->req, &flag, iter->statusP);
+        MPI_Test(&(*iter)->req, &flag, (*iter)->statusP);
         if (flag) { //
-          if (iter->callback)
-            iter->callback(iter->data);
+          if ((*iter)->callback)
+            (*iter)->callback((*iter)->data);
           else
-            iter->callback_status(iter->data, iter->statusP);
+            (*iter)->callback_status((*iter)->data, (*iter)->statusP);
+          delete (*iter);
           iter = singleRequests.erase(iter);
         } else {
           iter++;
         }
       }
     }
-    {
+    if (!allRequests.empty()){
       auto iter = allRequests.begin();
       auto end = allRequests.end();
       while (iter != end) {
         int flag;
-        MPI_Testall(iter->count, iter->req, &flag, iter->statuses);
+        MPI_Testall((*iter)->count, (*iter)->req, &flag, (*iter)->statuses);
         if (flag) { //
-          if (iter->callback)
-            iter->callback(iter->data);
+          if ((*iter)->callback)
+            (*iter)->callback((*iter)->data);
           else
-            iter->callback_statuses(iter->data, iter->count, iter->statuses);
+            (*iter)->callback_statuses((*iter)->data, (*iter)->count, (*iter)->statuses);
+          delete (*iter);
           iter = allRequests.erase(iter);
         } else {
           iter++;
@@ -138,7 +138,6 @@ void run(void) {
 void initDetach() {
   initialized = 1;
   detachThread = std::thread(run);
-  printf("I am called first\n");
 }
 
 // This function is assigned to execute after
@@ -146,11 +145,19 @@ void initDetach() {
 void finiDetach() {
   {
     std::unique_lock<std::mutex> lck(listMtx);
+    // make sure all requests get finally processed
+    // access to the *Queue lists is shared, so need to be locked
+    while (!singleRequestsQueue.empty() || !allRequestsQueue.empty())
+    {
+      listCv.notify_one();
+      lck.unlock();
+      std::this_thread::sleep_for(2ms);
+      lck.lock();
+    }// after while, lock is always set for changing running and notify
     running = 0;
     listCv.notify_one();
-  }
+  }// now wait for the progress thread to finish, i.e. all requests are handled
   detachThread.join();
-  printf("I am called last\n");
 }
 
 int MPI_Detach(MPI_Request *request, MPI_Detach_callback *callback,
@@ -163,10 +170,9 @@ int MPI_Detach(MPI_Request *request, MPI_Detach_callback *callback,
     callback(data);
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
-    singleRequestsQueue.push_back(singleRequest(request, callback, data));
+    singleRequestsQueue.push_back(new singleRequest(request, callback, data));
     listCv.notify_one();
   }
-  printf("MPI_Detach\n");
   return MPI_SUCCESS;
 }
 
@@ -181,14 +187,13 @@ int MPI_Detach_status(MPI_Request *request,
     callback(data, &status);
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
-    singleRequestsQueue.push_back(singleRequest(request, callback, data));
+    singleRequestsQueue.push_back(new singleRequest(request, callback, data));
     listCv.notify_one();
   }
-  printf("MPI_Detach_status\n");
   return MPI_SUCCESS;
 }
 
-int MPI_Detach_each(int count, MPI_Request array_of_requests[],
+int MPI_Detach_each(int count, MPI_Request* array_of_requests,
                     MPI_Detach_callback *callback, void *array_of_data[]) {
   if (!initialized)
     std::call_once(onceFlag, initDetach);
@@ -200,15 +205,14 @@ int MPI_Detach_each(int count, MPI_Request array_of_requests[],
     } else {
       std::unique_lock<std::mutex> lck(listMtx);
       singleRequestsQueue.push_back(
-          singleRequest(array_of_requests + i, callback, array_of_data[i]));
+          new singleRequest(array_of_requests + i, callback, array_of_data[i]));
       listCv.notify_one();
     }
   }
-  printf("MPI_Detach_each\n");
   return MPI_SUCCESS;
 }
 
-int MPI_Detach_each_status(int count, MPI_Request array_of_requests[],
+int MPI_Detach_each_status(int count, MPI_Request* array_of_requests,
                            MPI_Detach_callback_status *callback,
                            void *array_of_data[]) {
   if (!initialized)
@@ -222,15 +226,14 @@ int MPI_Detach_each_status(int count, MPI_Request array_of_requests[],
     } else {
       std::unique_lock<std::mutex> lck(listMtx);
       singleRequestsQueue.push_back(
-          singleRequest(array_of_requests + i, callback, array_of_data[i]));
+          new singleRequest(array_of_requests + i, callback, array_of_data[i]));
       listCv.notify_one();
     }
   }
-  printf("MPI_Detach_each_status\n");
   return MPI_SUCCESS;
 }
 
-int MPI_Detach_all(int count, MPI_Request array_of_requests[],
+int MPI_Detach_all(int count, MPI_Request* array_of_requests,
                    MPI_Detach_callback *callback, void *data) {
   if (!initialized)
     std::call_once(onceFlag, initDetach);
@@ -241,14 +244,13 @@ int MPI_Detach_all(int count, MPI_Request array_of_requests[],
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     allRequestsQueue.push_back(
-        allRequest(count, array_of_requests, callback, data));
+        new allRequest(count, array_of_requests, callback, data));
     listCv.notify_one();
   }
-  printf("MPI_Detach_all\n");
   return MPI_SUCCESS;
 }
 
-int MPI_Detach_all_status(int count, MPI_Request array_of_requests[],
+int MPI_Detach_all_status(int count, MPI_Request* array_of_requests,
                           MPI_Detach_callback_statuses *callback, void *data) {
   if (!initialized)
     std::call_once(onceFlag, initDetach);
@@ -260,16 +262,17 @@ int MPI_Detach_all_status(int count, MPI_Request array_of_requests[],
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     allRequestsQueue.push_back(
-        allRequest(count, array_of_requests, callback, data));
+        new allRequest(count, array_of_requests, callback, data));
     listCv.notify_one();
   }
-  printf("MPI_Detach_all_status\n");
   return MPI_SUCCESS;
 }
 
 int MPI_Finalize(){
   // we need to make sure, all communication is finished 
   // before calling MPI_Finalize
-  finiDetach();
+  if (initialized)
+    finiDetach();
+ 
   return PMPI_Finalize();
 }
