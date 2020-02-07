@@ -1,4 +1,3 @@
-void __attribute__((constructor)) initDetach(); 
 void __attribute__((destructor)) finiDetach(); 
 #include <stdio.h> 
 #include <stdlib.h> 
@@ -18,6 +17,9 @@ static std::thread detachThread;
 
 static std::mutex listMtx;
 static std::condition_variable listCv;
+
+static std::once_flag onceFlag;
+static int initialized{0};
 
 struct singleRequest{
   MPI_Request req;
@@ -80,8 +82,9 @@ void run(void)
       if (!allRequestsQueue.empty())
         allRequests.splice(allRequests.begin(), allRequestsQueue);
       if (singleRequests.empty() && allRequests.empty())
-        while (singleRequestsQueue.empty() && allRequestsQueue.empty()) 
+        while (running && singleRequestsQueue.empty() && allRequestsQueue.empty()) {
           listCv.wait(lck);
+        }
     } while (running && singleRequests.empty() && allRequests.empty());
     if (!running)
       break;
@@ -123,18 +126,12 @@ void run(void)
   }
 }
 
-
-  
-// This function is assigned to execute before 
-// main using __attribute__((constructor)) 
+// using __attribute__((constructor)) does not work, 
+// because c++ std library might not be initialized yet
 void initDetach() 
 { 
-  singleRequestsQueue.clear();
-  allRequestsQueue.clear();
-  singleRequests.clear();
-  allRequests.clear();
-
-    detachThread = std::thread(run); 
+  initialized = 1;
+  detachThread = std::thread(run); 
   printf("I am called first\n"); 
 } 
   
@@ -157,6 +154,8 @@ int MPI_Detach (
     MPI_Detach_callback* callback,
     void* data)
 { 
+    if (!initialized)
+      std::call_once(onceFlag, initDetach);
     int flag;
     MPI_Test(request, &flag, MPI_STATUS_IGNORE);
     if (flag) {
@@ -174,6 +173,8 @@ int MPI_Detach_status (
     MPI_Detach_callback_status* callback,
     void* data)
 { 
+    if (!initialized)
+      std::call_once(onceFlag, initDetach);
     int flag;
     MPI_Status status;
     MPI_Test(request, &flag, &status);
@@ -193,6 +194,8 @@ int MPI_Detach_each (
     MPI_Detach_callback* callback,
     void* array_of_data[])
 { 
+    if (!initialized)
+      std::call_once(onceFlag, initDetach);
     int flag;
     for(int i = 0; i<count; i++)
     {
@@ -214,6 +217,8 @@ int MPI_Detach_each_status (
     MPI_Detach_callback_status* callback,
     void* array_of_data[])
 { 
+    if (!initialized)
+      std::call_once(onceFlag, initDetach);
     int flag;
     MPI_Status status;
     for(int i = 0; i<count; i++)
@@ -236,6 +241,8 @@ int MPI_Detach_all (
     MPI_Detach_callback* callback,
     void* data)
 { 
+    if (!initialized)
+      std::call_once(onceFlag, initDetach);
     int flag;
     MPI_Testall(count, array_of_requests, &flag, MPI_STATUSES_IGNORE);
     if (flag) {
@@ -254,6 +261,8 @@ int MPI_Detach_all_status (
     MPI_Detach_callback_statuses* callback,
     void* data)
 { 
+    if (!initialized)
+      std::call_once(onceFlag, initDetach);
     int flag;
     MPI_Status statuses[count];
     MPI_Testall(count, array_of_requests, &flag, statuses);
