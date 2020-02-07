@@ -164,6 +164,7 @@ int MPI_Detach(MPI_Request *request, MPI_Detach_callback *callback,
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     singleRequestsQueue.push_back(singleRequest(request, callback, data));
+    listCv.notify_one();
   }
   printf("MPI_Detach\n");
   return MPI_SUCCESS;
@@ -181,6 +182,7 @@ int MPI_Detach_status(MPI_Request *request,
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     singleRequestsQueue.push_back(singleRequest(request, callback, data));
+    listCv.notify_one();
   }
   printf("MPI_Detach_status\n");
   return MPI_SUCCESS;
@@ -199,6 +201,7 @@ int MPI_Detach_each(int count, MPI_Request array_of_requests[],
       std::unique_lock<std::mutex> lck(listMtx);
       singleRequestsQueue.push_back(
           singleRequest(array_of_requests + i, callback, array_of_data[i]));
+      listCv.notify_one();
     }
   }
   printf("MPI_Detach_each\n");
@@ -220,6 +223,7 @@ int MPI_Detach_each_status(int count, MPI_Request array_of_requests[],
       std::unique_lock<std::mutex> lck(listMtx);
       singleRequestsQueue.push_back(
           singleRequest(array_of_requests + i, callback, array_of_data[i]));
+      listCv.notify_one();
     }
   }
   printf("MPI_Detach_each_status\n");
@@ -238,6 +242,7 @@ int MPI_Detach_all(int count, MPI_Request array_of_requests[],
     std::unique_lock<std::mutex> lck(listMtx);
     allRequestsQueue.push_back(
         allRequest(count, array_of_requests, callback, data));
+    listCv.notify_one();
   }
   printf("MPI_Detach_all\n");
   return MPI_SUCCESS;
@@ -256,6 +261,7 @@ int MPI_Detach_all_status(int count, MPI_Request array_of_requests[],
     std::unique_lock<std::mutex> lck(listMtx);
     allRequestsQueue.push_back(
         allRequest(count, array_of_requests, callback, data));
+    listCv.notify_one();
   }
   printf("MPI_Detach_all_status\n");
   return MPI_SUCCESS;
