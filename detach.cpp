@@ -174,8 +174,7 @@ void finiDetach() {
 
 int MPI_Detach(MPI_Request *request, MPI_Detach_callback *callback,
                void *data) {
-  if (!initialized)
-    std::call_once(onceFlag, initDetach);
+  std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Test(request, &flag, MPI_STATUS_IGNORE);
   if (flag) {
@@ -190,8 +189,7 @@ int MPI_Detach(MPI_Request *request, MPI_Detach_callback *callback,
 
 int MPI_Detach_status(MPI_Request *request,
                       MPI_Detach_callback_status *callback, void *data) {
-  if (!initialized)
-    std::call_once(onceFlag, initDetach);
+  std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Status status;
   MPI_Test(request, &flag, &status);
@@ -207,8 +205,7 @@ int MPI_Detach_status(MPI_Request *request,
 
 int MPI_Detach_each(int count, MPI_Request* array_of_requests,
                     MPI_Detach_callback *callback, void *array_of_data[]) {
-  if (!initialized)
-    std::call_once(onceFlag, initDetach);
+  std::call_once(onceFlag, initDetach);
   int flag;
   for (int i = 0; i < count; i++) {
     MPI_Test(array_of_requests + i, &flag, MPI_STATUS_IGNORE);
@@ -227,8 +224,7 @@ int MPI_Detach_each(int count, MPI_Request* array_of_requests,
 int MPI_Detach_each_status(int count, MPI_Request* array_of_requests,
                            MPI_Detach_callback_status *callback,
                            void *array_of_data[]) {
-  if (!initialized)
-    std::call_once(onceFlag, initDetach);
+  std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Status status;
   for (int i = 0; i < count; i++) {
@@ -247,8 +243,7 @@ int MPI_Detach_each_status(int count, MPI_Request* array_of_requests,
 
 int MPI_Detach_all(int count, MPI_Request* array_of_requests,
                    MPI_Detach_callback *callback, void *data) {
-  if (!initialized)
-    std::call_once(onceFlag, initDetach);
+  std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Testall(count, array_of_requests, &flag, MPI_STATUSES_IGNORE);
   if (flag) {
@@ -264,8 +259,7 @@ int MPI_Detach_all(int count, MPI_Request* array_of_requests,
 
 int MPI_Detach_all_status(int count, MPI_Request* array_of_requests,
                           MPI_Detach_callback_statuses *callback, void *data) {
-  if (!initialized)
-    std::call_once(onceFlag, initDetach);
+  std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Status statuses[count];
   MPI_Testall(count, array_of_requests, &flag, statuses);
