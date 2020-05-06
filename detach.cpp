@@ -79,6 +79,53 @@ static std::list<allRequest*> allRequestsQueue{};
 static std::list<singleRequest*> singleRequests{};
 static std::list<allRequest*> allRequests{};
 
+void progress(void) {
+  {
+    std::unique_lock<std::mutex> lck(listMtx);
+    if (!singleRequestsQueue.empty())
+      singleRequests.splice(singleRequests.begin(), singleRequestsQueue);
+    if (!allRequestsQueue.empty())
+      allRequests.splice(allRequests.begin(), allRequestsQueue);
+  }
+  if (!singleRequests.empty()) {
+    auto iter = singleRequests.begin();
+    auto end = singleRequests.end();
+    while (iter != end) {
+      int flag;
+      MPI_Test(&(*iter)->req, &flag, (*iter)->statusP);
+      if (flag) { //
+        if ((*iter)->callback)
+          (*iter)->callback((*iter)->data);
+        else
+          (*iter)->callback_status((*iter)->data, (*iter)->statusP);
+        delete (*iter);
+        iter = singleRequests.erase(iter);
+      } else {
+        iter++;
+      }
+    }
+  }
+  if (!allRequests.empty()){
+    auto iter = allRequests.begin();
+    auto end = allRequests.end();
+    while (iter != end) {
+      int flag;
+      MPI_Testall((*iter)->count, (*iter)->req, &flag, (*iter)->statuses);
+      if (flag) { //
+        if ((*iter)->callback)
+          (*iter)->callback((*iter)->data);
+        else
+          (*iter)->callback_statuses((*iter)->data, (*iter)->count, (*iter)->statuses);
+        delete (*iter);
+        iter = allRequests.erase(iter);
+      } else {
+        iter++;
+      }
+    }
+  }
+}
+
+
 void run(void) {
   while (running || !singleRequests.empty() || !allRequests.empty()) {
     do {
@@ -93,42 +140,7 @@ void run(void) {
           listCv.wait(lck);
         }
     } while (running && singleRequests.empty() && allRequests.empty());
-    if (!singleRequests.empty()) {
-      auto iter = singleRequests.begin();
-      auto end = singleRequests.end();
-      while (iter != end) {
-        int flag;
-        MPI_Test(&(*iter)->req, &flag, (*iter)->statusP);
-        if (flag) { //
-          if ((*iter)->callback)
-            (*iter)->callback((*iter)->data);
-          else
-            (*iter)->callback_status((*iter)->data, (*iter)->statusP);
-          delete (*iter);
-          iter = singleRequests.erase(iter);
-        } else {
-          iter++;
-        }
-      }
-    }
-    if (!allRequests.empty()){
-      auto iter = allRequests.begin();
-      auto end = allRequests.end();
-      while (iter != end) {
-        int flag;
-        MPI_Testall((*iter)->count, (*iter)->req, &flag, (*iter)->statuses);
-        if (flag) { //
-          if ((*iter)->callback)
-            (*iter)->callback((*iter)->data);
-          else
-            (*iter)->callback_statuses((*iter)->data, (*iter)->count, (*iter)->statuses);
-          delete (*iter);
-          iter = allRequests.erase(iter);
-        } else {
-          iter++;
-        }
-      }
-    }
+    progress();
     std::this_thread::sleep_for(2ms);
   }
 }
