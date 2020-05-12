@@ -159,7 +159,7 @@ void initDetach() {
   initialized = 1;
   // MPIX_DETACH=progress  to use a progress thread
   char* env = getenv("MPIX_DETACH");
-  if (std::string(env) == "progress") {
+  if (env && std::string(env) == "progress") {
     use_progress_thread = 1;
     detachThread = std::thread(run);
   }
