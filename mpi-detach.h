@@ -1,8 +1,14 @@
 #include <mpi.h>
-typedef void MPIX_Detach_callback(void *, MPI_Request *);
-typedef void MPIX_Detach_callback_status(void *, MPI_Request *, MPI_Status *);
-typedef void MPIX_Detach_all_callback(void *, int count, MPI_Request[]);
-typedef void MPIX_Detach_all_callback_statuses(void *, int count, MPI_Request[], MPI_Status[]);
+typedef void MPIX_Detach_callback_function(void *, MPI_Request *);
+typedef void MPIX_Detach_callback_status_function(void *, MPI_Request *, MPI_Status *);
+typedef void MPIX_Detach_all_callback_function(void *, int count, MPI_Request[]);
+typedef void MPIX_Detach_all_callback_statuses_function(void *, int count, MPI_Request[], MPI_Status[]);
+
+// lazy for compatibility
+typedef MPIX_Detach_callback_function MPIX_Detach_callback;
+typedef MPIX_Detach_callback_status_functionMPIX_Detach_callback_status;
+typedef MPIX_Detach_all_callback_function MPIX_Detach_all_callback;
+typedef MPIX_Detach_all_callback_statuses_function MPIX_Detach_all_callback_statuses;
 
 #ifdef __cplusplus
 extern "C" {
