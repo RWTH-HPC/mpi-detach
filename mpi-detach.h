@@ -1,8 +1,8 @@
 #include <mpi.h>
 typedef void MPIX_Detach_function(void *, MPI_Request *);
 typedef void MPIX_Detach_status_function(void *, MPI_Request *, MPI_Status *);
-typedef void MPIX_Detach_all_function(void *, int count, MPI_Request[]);
-typedef void MPIX_Detach_all_statuses_function(void *, int count, MPI_Request[], MPI_Status[]);
+typedef void MPIX_Detach_all_function(void *, int , MPI_Request[]);
+typedef void MPIX_Detach_all_statuses_function(void *, int , MPI_Request[], MPI_Status[]);
 
 // lazy for compatibility
 typedef MPIX_Detach_function MPIX_Detach_callback;
