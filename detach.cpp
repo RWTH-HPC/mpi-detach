@@ -25,18 +25,18 @@ static int use_progress_thread{0};
 
 struct singleRequest {
   MPI_Request req;
-  MPIX_Detach_callback *callback;
-  MPIX_Detach_callback_status *callback_status;
+  MPIX_Detach_function *callback;
+  MPIX_Detach_status_function *callback_status;
   MPI_Status status;
   void *data;
   MPI_Status *statusP; // pointer to status or MPI_STATUS_IGNORE
-  singleRequest(MPI_Request *request, MPIX_Detach_callback *callback,
+  singleRequest(MPI_Request *request, MPIX_Detach_function *callback,
                 void *data)
       : req(*request), callback(callback), callback_status(nullptr), status(),
         data(data), statusP(MPI_STATUS_IGNORE) {
     *request = MPI_REQUEST_NULL;
   }
-  singleRequest(MPI_Request *request, MPIX_Detach_callback_status *callback,
+  singleRequest(MPI_Request *request, MPIX_Detach_status_function *callback,
                 void *data)
       : req(*request), callback(nullptr), callback_status(callback), status(),
         data(data), statusP(&this->status) {
@@ -47,12 +47,12 @@ struct singleRequest {
 struct allRequest {
   int count;
   MPI_Request *req;
-  MPIX_Detach_all_callback *callback;
-  MPIX_Detach_all_callback_statuses *callback_statuses;
+  MPIX_Detach_function *callback;
+  MPIX_Detach_all_statuses_function *callback_statuses;
   MPI_Status *statuses;
   void *data;
   allRequest(int count, MPI_Request *array_of_requests,
-             MPIX_Detach_all_callback *callback, void *data)
+             MPIX_Detach_function *callback, void *data)
       : count(count), req(new MPI_Request[count]), callback(callback),
         callback_statuses(nullptr), statuses(MPI_STATUSES_IGNORE), data(data) {
     for (int i = 0; i < count; i++) {
@@ -61,7 +61,7 @@ struct allRequest {
     }
   }
   allRequest(int count, MPI_Request *array_of_requests,
-             MPIX_Detach_all_callback_statuses *callback, void *data)
+             MPIX_Detach_all_statuses_function *callback, void *data)
       : count(count), req(new MPI_Request[count]), callback(nullptr),
         callback_statuses(callback), statuses(new MPI_Status[count]),
         data(data) {
@@ -102,10 +102,9 @@ int MPIX_Progress(void *arg) {
       MPI_Test(&(*iter)->req, &flag, (*iter)->statusP);
       if (flag) { //
         if ((*iter)->callback)
-          (*iter)->callback((*iter)->data, &(*iter)->req);
+          (*iter)->callback((*iter)->data);
         else
-          (*iter)->callback_status((*iter)->data, &(*iter)->req,
-                                   (*iter)->statusP);
+          (*iter)->callback_status((*iter)->data, (*iter)->statusP);
         delete (*iter);
         iter = singleRequests.erase(iter);
       } else {
@@ -121,10 +120,10 @@ int MPIX_Progress(void *arg) {
       MPI_Testall((*iter)->count, (*iter)->req, &flag, (*iter)->statuses);
       if (flag) { //
         if ((*iter)->callback)
-          (*iter)->callback((*iter)->data, (*iter)->count, (*iter)->req);
+          (*iter)->callback((*iter)->data);
         else
           (*iter)->callback_statuses((*iter)->data, (*iter)->count,
-                                     (*iter)->req, (*iter)->statuses);
+                                     (*iter)->statuses);
         delete (*iter);
         iter = allRequests.erase(iter);
       } else {
@@ -193,13 +192,13 @@ void finiDetach() {
   }
 }
 
-int MPIX_Detach(MPI_Request *request, MPIX_Detach_callback *callback,
+int MPIX_Detach(MPI_Request *request, MPIX_Detach_function *callback,
                 void *data) {
   std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Test(request, &flag, MPI_STATUS_IGNORE);
   if (flag) {
-    callback(data, request);
+    callback(data);
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     singleRequestsQueue.push_back(new singleRequest(request, callback, data));
@@ -209,13 +208,13 @@ int MPIX_Detach(MPI_Request *request, MPIX_Detach_callback *callback,
 }
 
 int MPIX_Detach_status(MPI_Request *request,
-                       MPIX_Detach_callback_status *callback, void *data) {
+                       MPIX_Detach_status_function *callback, void *data) {
   std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Status status;
   MPI_Test(request, &flag, &status);
   if (flag) {
-    callback(data, request, &status);
+    callback(data, &status);
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     singleRequestsQueue.push_back(new singleRequest(request, callback, data));
@@ -225,13 +224,13 @@ int MPIX_Detach_status(MPI_Request *request,
 }
 
 int MPIX_Detach_each(int count, MPI_Request array_of_requests[],
-                     MPIX_Detach_callback *callback, void *array_of_data[]) {
+                     MPIX_Detach_function *callback, void *array_of_data[]) {
   std::call_once(onceFlag, initDetach);
   int flag;
   for (int i = 0; i < count; i++) {
     MPI_Test(array_of_requests + i, &flag, MPI_STATUS_IGNORE);
     if (flag) {
-      callback(array_of_data[i], array_of_requests + i);
+      callback(array_of_data[i]);
     } else {
       std::unique_lock<std::mutex> lck(listMtx);
       singleRequestsQueue.push_back(
@@ -243,7 +242,7 @@ int MPIX_Detach_each(int count, MPI_Request array_of_requests[],
 }
 
 int MPIX_Detach_each_status(int count, MPI_Request array_of_requests[],
-                            MPIX_Detach_callback_status *callback,
+                            MPIX_Detach_status_function *callback,
                             void *array_of_data[]) {
   std::call_once(onceFlag, initDetach);
   int flag;
@@ -251,7 +250,7 @@ int MPIX_Detach_each_status(int count, MPI_Request array_of_requests[],
   for (int i = 0; i < count; i++) {
     MPI_Test(array_of_requests + i, &flag, &status);
     if (flag) {
-      callback(array_of_data[i], array_of_requests + i, &status);
+      callback(array_of_data[i], &status);
     } else {
       std::unique_lock<std::mutex> lck(listMtx);
       singleRequestsQueue.push_back(
@@ -263,12 +262,12 @@ int MPIX_Detach_each_status(int count, MPI_Request array_of_requests[],
 }
 
 int MPIX_Detach_all(int count, MPI_Request array_of_requests[],
-                    MPIX_Detach_all_callback *callback, void *data) {
+                    MPIX_Detach_function *callback, void *data) {
   std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Testall(count, array_of_requests, &flag, MPI_STATUSES_IGNORE);
   if (flag) {
-    callback(data, count, array_of_requests);
+    callback(data);
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     allRequestsQueue.push_back(
@@ -279,14 +278,14 @@ int MPIX_Detach_all(int count, MPI_Request array_of_requests[],
 }
 
 int MPIX_Detach_all_status(int count, MPI_Request array_of_requests[],
-                           MPIX_Detach_all_callback_statuses *callback,
+                           MPIX_Detach_all_statuses_function *callback,
                            void *data) {
   std::call_once(onceFlag, initDetach);
   int flag;
   MPI_Status statuses[count];
   MPI_Testall(count, array_of_requests, &flag, statuses);
   if (flag) {
-    callback(data, count, array_of_requests, statuses);
+    callback(data, count, statuses);
   } else {
     std::unique_lock<std::mutex> lck(listMtx);
     allRequestsQueue.push_back(

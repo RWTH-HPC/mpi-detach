@@ -1,19 +1,16 @@
 #include "mpi-detach.h"
 #include <stdio.h>
 
-void Detach_callback(void *data, MPI_Request* req) {
+void Detach_callback(void *data) {
   printf("Detach_callback: %s\n", (const char *)data);
 }
 
-void Detach_callback_status(void *data, MPI_Request* req, MPI_Status *status) {
+void Detach_callback_status(void *data, MPI_Status *status) {
   printf("Detach_callback_status: %s\n", (const char *)data);
 }
 
-void Detach_all_callback(void *data, int count, MPI_Request array_of_requests[]) {
-  printf("Detach_all_callback: %s\n", (const char *)data);
-}
-
-void Detach_all_callback_statuses(void *data, int count, MPI_Request array_of_requests[], MPI_Status array_of_statuses[]) {
+void Detach_all_callback_statuses(void *data, int count,
+                                  MPI_Status array_of_statuses[]) {
   printf("Detach_callback_statuses: %s\n", (const char *)data);
 }
 
@@ -31,7 +28,8 @@ int main() {
 
   for (int i=0; i<10; i++)
     MPI_Isend(A+i, 1, MPI_INT, 0, 23, MPI_COMM_SELF, reqs+i);
-  MPIX_Detach_all(10, reqs, Detach_all_callback, "sent 10 times data with MPI_Isend");
+  MPIX_Detach_all(10, reqs, Detach_callback,
+                  "sent 10 times data with MPI_Isend");
   for (int i=0; i<10; i++)
     MPI_Recv(B+i, 1, MPI_INT, 0, 23, MPI_COMM_SELF, MPI_STATUS_IGNORE);
 
