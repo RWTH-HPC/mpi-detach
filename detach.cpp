@@ -3,6 +3,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <list>
+#include <set>
 #include <mutex>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,29 @@ static std::once_flag onceFlag;
 static int initialized{0};
 static int use_progress_thread{0};
 
+static std::atomic<int> persistentRequests{0};
+static std::mutex persistentRequestMtx;
+static std::set<MPI_Request> persistentRequestMap;
+
+static void registerPersistentRequest(MPI_Request * req){
+  std::unique_lock<std::mutex> lck(persistentRequestMtx);
+  persistentRequestMap.insert(*req);
+  persistentRequests++;
+}
+
+static void deregisterPersistentRequest(MPI_Request * req){
+  std::unique_lock<std::mutex> lck(persistentRequestMtx);
+  persistentRequestMap.erase(*req);
+  persistentRequests--;
+}
+
+static bool isPersistentRequest(MPI_Request * req){
+  if (persistentRequests==0)
+    return false;
+  std::unique_lock<std::mutex> lck(persistentRequestMtx);
+  return persistentRequestMap.find(*req) != persistentRequestMap.end();
+}
+
 struct singleRequest {
   MPI_Request req;
   MPIX_Detach_function *callback;
@@ -34,15 +58,30 @@ struct singleRequest {
                 void *data)
       : req(*request), callback(callback), callback_status(nullptr), status(),
         data(data), statusP(MPI_STATUS_IGNORE) {
-    *request = MPI_REQUEST_NULL;
+    if (!isPersistentRequest(request))
+      *request = MPI_REQUEST_NULL;
   }
   singleRequest(MPI_Request *request, MPIX_Detach_status_function *callback,
                 void *data)
       : req(*request), callback(nullptr), callback_status(callback), status(),
         data(data), statusP(&this->status) {
-    *request = MPI_REQUEST_NULL;
+    if (!isPersistentRequest(request))
+      *request = MPI_REQUEST_NULL;
   }
 };
+
+static inline void copyRequests(MPI_Request *inReq, MPI_Request *outReq, int count){
+  if(persistentRequests==0)
+    for (int i = 0; i < count; i++) {
+      outReq[i] = inReq[i];
+    }
+  else
+    for (int i = 0; i < count; i++) {
+      outReq[i] = inReq[i];
+      if (!isPersistentRequest(inReq+i))
+        inReq[i] = MPI_REQUEST_NULL;
+    }
+}
 
 struct allRequest {
   int count;
@@ -55,20 +94,14 @@ struct allRequest {
              MPIX_Detach_function *callback, void *data)
       : count(count), req(new MPI_Request[count]), callback(callback),
         callback_statuses(nullptr), statuses(MPI_STATUSES_IGNORE), data(data) {
-    for (int i = 0; i < count; i++) {
-      req[i] = array_of_requests[i];
-      array_of_requests[i] = MPI_REQUEST_NULL;
-    }
+    copyRequests(req, array_of_requests, count);
   }
   allRequest(int count, MPI_Request *array_of_requests,
              MPIX_Detach_all_statuses_function *callback, void *data)
       : count(count), req(new MPI_Request[count]), callback(nullptr),
         callback_statuses(callback), statuses(new MPI_Status[count]),
         data(data) {
-    for (int i = 0; i < count; i++) {
-      req[i] = array_of_requests[i];
-      array_of_requests[i] = MPI_REQUEST_NULL;
-    }
+    copyRequests(req, array_of_requests, count);
   }
   ~allRequest() {
     delete[] req;
@@ -82,6 +115,7 @@ static std::list<allRequest *> allRequestsQueue{};
 
 static std::list<singleRequest *> singleRequests{};
 static std::list<allRequest *> allRequests{};
+
 
 int MPIX_Progress(void *arg) {
   // only one thread will execute at a time
@@ -294,6 +328,47 @@ int MPIX_Detach_all_status(int count, MPI_Request array_of_requests[],
   }
   return MPI_SUCCESS;
 }
+
+int MPI_Bsend_init(const void *buf, int count, MPI_Datatype datatype,
+                   int dest, int tag, MPI_Comm comm, MPI_Request *request) {
+  int ret = PMPI_Bsend_init(buf, count, datatype, dest, tag, comm, request);
+  registerPersistentRequest(request);
+  return ret;
+}
+
+int MPI_Ssend_init(const void *buf, int count, MPI_Datatype datatype, int dest,
+                  int tag, MPI_Comm comm, MPI_Request *request) {
+  int ret = PMPI_Ssend_init(buf, count, datatype, dest, tag, comm, request);
+  registerPersistentRequest(request);
+  return ret;
+}
+
+int MPI_Rsend_init(const void *buf, int count, MPI_Datatype datatype, int dest,
+                  int tag, MPI_Comm comm, MPI_Request *request) {
+  int ret = PMPI_Rsend_init(buf, count, datatype, dest, tag, comm, request);
+  registerPersistentRequest(request);
+  return ret;
+}
+
+int MPI_Send_init(const void *buf, int count, MPI_Datatype datatype, int dest,
+                  int tag, MPI_Comm comm, MPI_Request *request) {
+  int ret = PMPI_Send_init(buf, count, datatype, dest, tag, comm, request);
+  registerPersistentRequest(request);
+  return ret;
+}
+
+int MPI_Recv_init(void *buf, int count, MPI_Datatype datatype, int source,
+                  int tag, MPI_Comm comm, MPI_Request * request) {
+  int ret = PMPI_Recv_init(buf, count, datatype, source, tag, comm, request);
+  registerPersistentRequest(request);
+  return ret;
+}
+
+int MPI_Request_free(MPI_Request *request) {
+  deregisterPersistentRequest(request);
+  return PMPI_Request_free(request);
+}
+
 
 int MPI_Finalize() {
   // we need to make sure, all communication is finished
