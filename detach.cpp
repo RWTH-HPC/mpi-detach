@@ -316,7 +316,7 @@ int MPIX_Detach_all_status(int count, MPI_Request array_of_requests[],
                            void *data) {
   std::call_once(onceFlag, initDetach);
   int flag;
-  MPI_Status statuses[count];
+  MPI_Status* statuses = new MPI_Status[count];
   PMPI_Testall(count, array_of_requests, &flag, statuses);
   if (flag) {
     callback(data, count, statuses);
@@ -326,6 +326,7 @@ int MPIX_Detach_all_status(int count, MPI_Request array_of_requests[],
         new allRequest(count, array_of_requests, callback, data));
     listCv.notify_one();
   }
+  delete statuses;
   return MPI_SUCCESS;
 }
 
