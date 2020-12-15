@@ -5,8 +5,14 @@
 #include "mpi-detach.h"
 #include <unistd.h>
 
-int main() {
-  MPI_Init(NULL,NULL);
+int main(int argc, char** argv) {
+  int provided;
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+  if (provided != MPI_THREAD_MULTIPLE) {
+    printf("This code needs MPI_THREAD_MULTIPLE(%i), threadlevel %i was provided\n", MPI_THREAD_MULTIPLE, provided);
+    MPI_Finalize();
+    return -1;
+  }
   int rank, size;
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -21,8 +27,8 @@ int main() {
       MPI_Request req;
       printf("MPI_Irecv\n");
       MPI_Irecv(B, 5, MPI_INT, size - rank - 1, 23, MPI_COMM_WORLD, &req);
-      printf("MPI_Detach\n");
-      MPI_Detach(&req, (MPI_Detach_callback *)omp_fulfill_event, (void*)event_handle);
+      printf("MPIX_Detach\n");
+      MPIX_Detach(&req, (MPIX_Detach_callback *)omp_fulfill_event, (void*)event_handle);
     }
   #pragma omp task depend(in : B)
     {

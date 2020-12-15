@@ -53,6 +53,21 @@ export MPIX_DETACH=progress
 
 Alternatively, progress can be provided by registering `MPIX_Progress` with an external polling service.
 
+# Example
+
+The detached task example can be used with any OpenMP implementation
+supporting detached tasks (e.g., LLVM 11 or newer):
+
+```bash
+$ make MPICC=mpicc.mpich MPICXX=mpicxx.mpich CC=clang CXX=clang++ openmp-task-detach
+$ MPIX_DETACH=progress ./openmp-task-detach
+MPI_Irecv
+MPIX_Detach
+MPI_Send
+Done verify
+```
+
+
 # License
 
 MIT license, see [LICENSE](./LICENSE) file
